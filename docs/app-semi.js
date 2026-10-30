@@ -24,6 +24,11 @@ function startSemiMock() {
   ], { mock: true, semi: true, title: '準決賽・綜合模擬' });
 }
 
+function pdfPool(type) {
+  return B[type].map((d, i) => ({ type, idx: i, key: type + ':' + i, d })).filter(it => it.d.from);
+}
+const fromTag = d => d.from ? `<div class="from">出自 ${esc(d.from)}（試題範例原題）</div>` : '';
+
 function tableHTML(t) {
   if (!t) return '';
   return `<div class="dtable-wrap"><table class="dtable"><thead><tr>${t.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
@@ -37,8 +42,8 @@ function renderSMC(it) {
   function show() {
     gen++; onKey = null;
     const q = mixOpts(subs[k]);
-    const head = isG ? `<div class="stem"><b>題組</b>${esc(d.stem)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}<div class="q-text">（${k + 1}）${esc(q.q)}</div>`
-      : `<div class="q-text">${esc(q.q)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}`;
+    const head = fromTag(d) + (isG ? `<div class="stem"><b>題組</b>${esc(d.stem)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}<div class="q-text">（${k + 1}）${esc(q.q)}</div>`
+      : `<div class="q-text">${esc(q.q)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}`);
     app.innerHTML = stage(`${no}-準決賽選擇題${isG ? `（題組 ${k + 1}/${subs.length}）` : ''}`, `${head}
       <div class="opts">${q.opts.map((o, i) => `<button data-i="${i}"><span class="k">(${LETTERS[i]})</span><span>${esc(o)}</span></button>`).join('')}</div>
       <div id="fb"></div>${kbd('按 <kbd>A</kbd>–<kbd>D</kbd> 或 <kbd>1</kbd>–<kbd>4</kbd> 作答')}`);
@@ -76,7 +81,7 @@ function renderSOpen(it) {
   const d = it.d, no = ++S.no;
   const maxOf = p => p.ref ? p.rubric.reduce((n, r) => n + r.p, 0) : 2;
   const max = d.parts.reduce((n, p) => n + maxOf(p), 0);
-  app.innerHTML = stage(`${no}-準決賽非選擇題`, `<div class="q-text">${esc(d.q)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}
+  app.innerHTML = stage(`${no}-準決賽非選擇題`, `${fromTag(d)}<div class="q-text">${esc(d.q)}</div>${mediaHTML(d.img)}${tableHTML(d.table)}
     <div class="parts">${d.parts.map((p, i) => `<div class="part" data-i="${i}">
       <div class="part-q"><b>（${i + 1}）</b>${esc(p.q)}<span class="part-pts">${maxOf(p)} 分</span></div>
       ${p.ref ? '<textarea class="board-input area" rows="3" placeholder="寫下你的說明…"></textarea>' : '<input class="board-input" autocomplete="off" placeholder="寫下答案…">'}
@@ -135,28 +140,33 @@ function renderSOpen(it) {
 /* ───────── 準決賽・同分決勝題 ───────── */
 function renderSTie(it) {
   const d = it.d, no = ++S.no;
-  ({ draw: tieDraw, locate: tieLocate, contour: tieLocate })[d.kind](it, no);
+  ({ draw: tieDraw, locate: tieLocate, contour: tieLocate, imgbox: tieLocate })[d.kind](it, no);
 }
 
 // 手繪：畫布＋復原／清除，完成後對照參考地圖自評
 function tieDraw(it, no) {
   const d = it.d;
-  app.innerHTML = stage(`${no}-同分決勝題（手繪）`, `<div class="q-text">${esc(d.q)}</div>
+  app.innerHTML = stage(`${no}-同分決勝題（手繪）`, `${fromTag(d)}<div class="q-text">${esc(d.q)}</div>
     <div class="drawbox"><canvas id="cv" aria-label="手繪區"></canvas><div class="draw-hint">在這裡用手指或滑鼠畫，標示可以直接寫字</div></div>
     <div class="row" id="tools"><button class="btn ghost small" id="undo">↶ 復原</button><button class="btn ghost small" id="clr">清除</button><span class="spacer"></span><button class="btn" id="done">畫好了，對照答案</button></div>
     <div id="fb"></div>`);
   bindQuit();
   const cv = app.querySelector('#cv'), box = app.querySelector('.drawbox'), hint = app.querySelector('.draw-hint');
-  const W = box.clientWidth, H = Math.round(Math.min(480, Math.max(300, W * 0.8))), dpr = window.devicePixelRatio || 1;
+  const bg = d.bg ? new Image() : null;
+  if (bg) { bg.onload = () => { if (g === gen) setup(); }; bg.src = d.bg; } else setup();
+  const g = gen;
+  function setup() {
+  const W = box.clientWidth, H = bg ? Math.round(W * bg.naturalHeight / bg.naturalWidth) : Math.round(Math.min(480, Math.max(300, W * 0.8))), dpr = window.devicePixelRatio || 1;
   cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
   const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#333';
   const strokes = []; let cur = null, locked = false;
   function redraw() {
     ctx.clearRect(0, 0, W, H);
+    if (bg) ctx.drawImage(bg, 0, 0, W, H);
     ctx.strokeStyle = ink; ctx.lineWidth = 2.6; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     strokes.forEach(s => { ctx.beginPath(); s.forEach((p, i) => i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])); if (s.length === 1) ctx.lineTo(s[0][0] + 0.1, s[0][1]); ctx.stroke(); });
-    hint.hidden = strokes.length > 0;
+    hint.hidden = strokes.length > 0 || !!bg;
   }
   const pos = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   cv.addEventListener('pointerdown', e => { if (locked) return; cv.setPointerCapture(e.pointerId); cur = [pos(e)]; strokes.push(cur); redraw(); });
@@ -171,7 +181,7 @@ function tieDraw(it, no) {
     const max = d.rubric.reduce((n, r) => n + r.p, 0);
     let got = 0;
     const fb = app.querySelector('#fb');
-    fb.innerHTML = `<div class="feedback self"><div class="verdict">參考地圖</div>${mediaHTML(d.ref)}
+    fb.innerHTML = `<div class="feedback self"><div class="verdict">${d.ref ? '參考地圖' : '參考答案'}</div>${d.ref ? mediaHTML(d.ref) : ''}${d.answerText ? `<div class="exp ref">${esc(d.answerText)}</div>` : ''}
       <div class="rubric"><b>評分規準（對照地圖，勾選你畫對的）</b>${d.rubric.map((r, j) => `<label><input type="checkbox" data-j="${j}"> ${esc(r.t)}<span class="part-pts">${r.p} 分</span></label>`).join('')}</div>
       <div class="verdict">本題得分 <span id="semiTotal">0 / ${max}</span></div>${creditHTML()}
       <div class="row"><span class="spacer"></span><button class="btn" id="nx">確認得分，下一題 →</button></div></div>`;
@@ -183,6 +193,7 @@ function tieDraw(it, no) {
     fb.querySelector('#nx').onclick = () => { record(it, got === max, got, max, d.q, '（手繪）', '對照參考地圖'); nextItem(); };
     fb.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
+  }
 }
 
 // 等高線圖：兩座高斯山峰，算出鞍部與最高點
@@ -215,11 +226,20 @@ async function contourMap() {
   return { svg, saddle: [best.x * k, best.y * k], peak: [top.x * k, top.y * k], W, H };
 }
 
+// 圖片定位：把圖片放進 SVG，座標用圖片原始像素
+function imageBox(src) {
+  return new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => { const W = im.naturalWidth, H = im.naturalHeight; res({ W, H, svg: `<svg viewBox="0 0 ${W} ${H}" class="mapsvg imgsvg" role="img" aria-label="題目附圖"><image href="${src}" width="${W}" height="${H}"/></svg>` }); };
+    im.onerror = rej; im.src = src;
+  });
+}
+
 // 定位：點地圖，確定後依距離給分（6／3／0）
 function tieLocate(it, no) {
   const d = it.d, g = gen;
-  const label = d.kind === 'contour' ? '等高線' : '定位';
-  app.innerHTML = stage(`${no}-同分決勝題（${label}）`, `<div class="q-text">${esc(d.q)}</div>
+  const label = d.kind === 'locate' ? '定位' : '等高線';
+  app.innerHTML = stage(`${no}-同分決勝題（${label}）`, `${fromTag(d)}<div class="q-text">${esc(d.q)}</div>
     <figure class="qimg ${d.kind === 'contour' ? 'contour' : 'map'} locate ${d.map && d.map.map === 'tw' ? 'tw' : ''}" id="lm"><div class="map-loading">地圖載入中…</div></figure>
     <div class="row"><span class="hint" id="lhint">在圖上點一下，放下你的標記（可以重新點選）</span><span class="spacer"></span><button class="btn" id="ok" disabled>確定位置</button></div>
     <div id="fb"></div>`);
@@ -228,7 +248,7 @@ function tieLocate(it, no) {
   let m, mark = null, svg, done = false;
   const NS = 'http://www.w3.org/2000/svg';
   const dot = (x, y, cls, r) => { const c = document.createElementNS(NS, 'circle'); c.setAttribute('cx', x); c.setAttribute('cy', y); c.setAttribute('r', r); c.setAttribute('class', cls); svg.appendChild(c); return c; };
-  (d.kind === 'contour' ? contourMap() : buildMap(d.map)).then(res => {
+  (d.kind === 'contour' ? contourMap() : d.kind === 'imgbox' ? imageBox(d.src) : buildMap(d.map)).then(res => {
     if (g !== gen) return;
     m = res; fig.innerHTML = m.svg; svg = fig.querySelector('svg');
     svg.addEventListener('click', e => {
@@ -243,7 +263,16 @@ function tieLocate(it, no) {
   okBtn.onclick = () => {
     if (!mark || done) return; done = true; okBtn.disabled = true;
     let truth, pts, distText;
-    if (d.kind === 'contour') {
+    if (d.kind === 'imgbox') {
+      const [x1, y1, x2, y2] = d.box, [x, y] = mark._xy, pad = 18;
+      truth = [(x1 + x2) / 2, (y1 + y2) / 2];
+      const inBox = (p) => x >= x1 - p && x <= x2 + p && y >= y1 - p && y <= y2 + p;
+      pts = inBox(0) ? 6 : inBox(pad) ? 3 : 0;
+      distText = pts === 6 ? '標示在給分範圍內' : pts === 3 ? '很接近，但在給分範圍外' : '位置差太遠';
+      const r = document.createElementNS(NS, 'rect');
+      [['x', x1], ['y', y1], ['width', x2 - x1], ['height', y2 - y1]].forEach(([a, v]) => r.setAttribute(a, v));
+      r.setAttribute('class', 'truth-box'); svg.appendChild(r);
+    } else if (d.kind === 'contour') {
       truth = d.target === 'saddle' ? m.saddle : m.peak;
       const px = Math.hypot(mark._xy[0] - truth[0], mark._xy[1] - truth[1]), tol = m.W * 0.06;
       pts = px <= tol ? 6 : px <= tol * 2 ? 3 : 0;
@@ -259,8 +288,8 @@ function tieLocate(it, no) {
     ln.setAttribute('class', 'miss-line'); svg.appendChild(ln);
     dot(truth[0], truth[1], 'truth-mark', 8);
     svg.appendChild(mark);
-    const name = d.kind === 'contour' ? (d.target === 'saddle' ? '鞍部' : '最高山頂') : d.name;
+    const name = d.kind === 'imgbox' ? '鞍部（綠框範圍）' : d.kind === 'contour' ? (d.target === 'saddle' ? '鞍部' : '最高山頂') : d.name;
     record(it, pts === 6, pts, 6, d.q, distText, name);
-    feedback(app.querySelector('#fb'), { ok: pts === 6, verdict: `${distText}・得 ${pts} / 6 分`, answer: `${esc(name)}（綠色圓點）`, exp: d.exp });
+    feedback(app.querySelector('#fb'), { ok: pts === 6, verdict: `${distText}・得 ${pts} / 6 分`, answer: d.kind === 'imgbox' ? esc(name) : `${esc(name)}（綠色圓點）`, exp: d.exp });
   };
 }

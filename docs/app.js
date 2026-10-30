@@ -10,7 +10,8 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('geochamp:' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem('geochamp:' + k, JSON.stringify(v)); } catch (e) { /* 無痕模式等 */ } }
 };
-const settings = Object.assign({ timer: 'race', rival: 'normal', speed: 7 }, store.get('settings', {}));
+const settings = Object.assign({ rival: 'normal', speed: 7 }, store.get('settings', {}));
+settings.timer = 'off';   // 已移除計時功能：所有題型都不限時
 const stats = store.get('stats', {});
 const wrong = store.get('wrong', {});
 const saveAll = () => { store.set('settings', settings); store.set('stats', stats); store.set('wrong', wrong); };
@@ -19,16 +20,16 @@ const saveAll = () => { store.set('settings', settings); store.set('stats', stat
 const TYPES = {
   tf: { name: '是非題', stage: '第一階段・第I部分', ans: 3, pts: 10, def: 10,
     desc: 'O 代表正確、X 代表錯誤，每題 3 秒',
-    rules: ['「O」代表正確、「X」代表錯誤', '聆聽主持人宣讀題幹，再作答', '每題作答時間 <b>3 秒</b>', '鍵盤：按 <b>O</b> 或 <b>X</b> 作答'] },
+    rules: ['「O」代表正確、「X」代表錯誤', '聆聽主持人宣讀題幹，再作答', '比賽時每題作答時間 <b>3 秒</b>', '鍵盤：按 <b>O</b> 或 <b>X</b> 作答'] },
   mc: { name: '選擇題', stage: '第一階段・第II部分', ans: 5, pts: 10, def: 10,
     desc: '單選題，以 (A)(B)(C)(D) 作答，每題 5 秒',
-    rules: ['皆為<b>單選題</b>，以 (A)(B)(C)(D) 作答', '每題作答時間 <b>5 秒</b>', '鍵盤：按 <b>A–D</b> 或 <b>1–4</b> 作答'] },
+    rules: ['皆為<b>單選題</b>，以 (A)(B)(C)(D) 作答', '比賽時每題作答時間 <b>5 秒</b>', '鍵盤：按 <b>A–D</b> 或 <b>1–4</b> 作答'] },
   sa: { name: '簡答題－單題', stage: '第一階段・第III部分', ans: 10, pts: 10, def: 10,
     desc: '寫出答案，每題 10 秒',
-    rules: ['答案要寫清楚，<b>關鍵字寫錯不給分</b>', '地名以<b>現今地名</b>或<b>我國慣用翻譯</b>為準', '每題作答時間 <b>10 秒</b>', '若系統誤判（例如用了其他合理譯名），可按「評審改判」'] },
+    rules: ['答案要寫清楚，<b>關鍵字寫錯不給分</b>', '地名以<b>現今地名</b>或<b>我國慣用翻譯</b>為準', '比賽時每題作答時間 <b>10 秒</b>', '若系統誤判（例如用了其他合理譯名），可按「評審改判」'] },
   group: { name: '簡答題－題組', stage: '第一階段・第IV部分', ans: 10, pts: 30, def: 5,
     desc: '3 個提示，越早作答分數越高（30／20／10）',
-    rules: ['每個題組有 <b>3 個提示</b>，可在任一提示後作答，<b>作答後不可更改</b>', '第一個提示後作答：寫在<b>紅色紙</b>（30 分）', '第二個提示後作答：寫在<b>藍色紙</b>（20 分）', '第三個提示後作答：寫在<b>白板</b>（10 分）', '每個提示的作答時間 <b>10 秒</b>'] },
+    rules: ['每個題組有 <b>3 個提示</b>，可在任一提示後作答，<b>作答後不可更改</b>', '第一個提示後作答：寫在<b>紅色紙</b>（30 分）', '第二個提示後作答：寫在<b>藍色紙</b>（20 分）', '第三個提示後作答：寫在<b>白板</b>（10 分）', '比賽時每個提示的作答時間 <b>10 秒</b>'] },
   buzz: { name: '搶答－單題', stage: '第二階段・第I部分', pts: 10, def: 10,
     desc: '題幹先出現、主要問題較晚出現，按鈴搶答',
     rules: ['題幹會先出現，<b>主要問題比較晚</b>才播放', '只要有人按鈴，主持人就停止唸題，按鈴者必須<b>立刻作答</b>', '答錯就開放其他選手作答；<b>每人每題只有一次機會</b>', '鍵盤：按 <b>空白鍵</b> 按鈴、<b>Enter</b> 送出'] },
@@ -39,7 +40,7 @@ const TYPES = {
 const LETTERS = ['A', 'B', 'C', 'D'];
 // 每次出題隨機排列選項（甲乙丙丁這類有順序的選項不動），避免正解集中在 (A)
 function mixOpts(q) {
-  if (q.opts.every(o => /^[甲乙丙丁]$/.test(o))) return q;
+  if (q.fixed || q.opts.every(o => /^[甲乙丙丁]$/.test(o))) return q;
   const order = shuffle([0, 1, 2, 3].slice(0, q.opts.length));
   return Object.assign({}, q, { opts: order.map(i => q.opts[i]), a: order.indexOf(q.a) });
 }
@@ -65,6 +66,11 @@ function norm(s) {
 function judge(input, item) {
   const x = norm(input);
   if (!x) return false;
+  if (item.range) {                                                          // 估算題：數字落在範圍內
+    const n = parseFloat(String(input).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 65248)).replace(/[^0-9.]/g, ''));
+    return n >= item.range[0] && n <= item.range[1];
+  }
+  if (item.exact) return item.ans.some(a => norm(a) === x);                  // 只接受列出的寫法
   if (item.all) return item.all.every(k => x.includes(norm(k)));
   return item.ans.some(a => {
     const y = norm(a);
@@ -111,6 +117,7 @@ function mediaHTML(img) {
     const base = COMMONS + img.photo.split('/').map(encodeURIComponent).join('/') + '/';
     return `<figure class="qimg photo"><img src="${base}500px-${encodeURIComponent(name)}" data-fb="${base}330px-${encodeURIComponent(name)}" data-name="${esc(name)}" alt="題目照片" onerror="if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb=''}"></figure>`;
   }
+  if (img.src) return `<figure class="qimg pdfimg"><img src="${img.src}" alt="題目附圖"></figure>`;
   if (img.flag) return `<figure class="qimg flag"><img src="https://flagcdn.com/w640/${img.flag}.png" alt="題目國旗"></figure>`;
   if (img.climate) return `<figure class="qimg chart">${climateSVG(img.climate)}</figure>`;
   if (img.map) return `<figure class="qimg map ${img.map}" data-map='${esc(JSON.stringify(img))}'><div class="map-loading">地圖載入中…</div></figure>`;
@@ -278,8 +285,6 @@ function home() {
 
   <div class="section-h"><h2>設定</h2></div>
   <div class="settings">
-    <div class="set-row"><label>計時</label>${seg('timer', [['race', '比賽計時'], ['relax', '寬鬆（3 倍時間）'], ['off', '不計時']])}
-      <span class="hint">比賽計時：是非 3 秒、選擇 5 秒、簡答與題組 10 秒（另給閱讀題目的時間）。</span></div>
     <div class="set-row"><label>搶答對手</label>${seg('rival', [['off', '關閉'], ['easy', '新手'], ['normal', '普通'], ['hard', '高手']])}
       <span class="hint">電腦對手會在唸題過程中按鈴搶答；越強按得越早、答得越準。</span></div>
     <div class="set-row"><label>唸題速度</label>${seg('speed', [[5, '慢'], [7, '中'], [10, '快']])}
@@ -316,13 +321,13 @@ function modePage(type) {
     <h2>${T.name}</h2>
     <ul>${T.rules.map(r => `<li>${r}</li>`).join('')}</ul>
     <div class="count-pick seg" id="cnt">${counts.map(n => `<button data-n="${n}" aria-pressed="${n === pick}">${n} ${type === 'chain' ? '組' : '題'}</button>`).join('')}<button data-n="${total}" aria-pressed="false">全部 ${total}</button></div>
-    <div class="count-pick seg" id="pic" ${SEMI.includes(type) ? 'hidden' : ''}><button data-p="0" aria-pressed="true">全部題目</button><button data-p="1" aria-pressed="false">只出圖片題（${picturePool(type).length}）</button></div>
+    <div class="count-pick seg" id="pic"><button data-p="0" aria-pressed="true">全部題目</button><button data-p="1" aria-pressed="false">${SEMI.includes(type) ? `只出 PDF 試題範例原題（${pdfPool(type).length}）` : `只出圖片題（${picturePool(type).length}）`}</button></div>
     <div class="row"><button class="btn ghost" data-go="home">← 回首頁</button><span class="spacer"></span><button class="btn" id="go">開始練習</button></div>
   </div>`;
   let picOnly = false;
   app.querySelectorAll('#pic button').forEach(b => b.onclick = () => { picOnly = b.dataset.p === '1'; app.querySelectorAll('#pic button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
   app.querySelectorAll('#cnt button').forEach(b => b.onclick = () => { pick = +b.dataset.n; app.querySelectorAll('#cnt button').forEach(x => x.setAttribute('aria-pressed', x === b)); });
-  app.querySelector('#go').onclick = () => startSession([{ type, items: picOnly ? shuffle(picturePool(type)).slice(0, pick) : draw(type, pick) }], { title: T.name + (picOnly ? '・圖片題' : '') });
+  app.querySelector('#go').onclick = () => startSession([{ type, items: picOnly ? shuffle(SEMI.includes(type) ? pdfPool(type) : picturePool(type)).slice(0, pick) : draw(type, pick) }], { title: T.name + (picOnly ? (SEMI.includes(type) ? '・試題範例原題' : '・圖片題') : '') });
   onKey = e => { if (e.key === 'Enter') app.querySelector('#go').click(); };
 }
 
@@ -448,6 +453,7 @@ function feedback(el, { ok, verdict, answer, exp, your, override, nextLabel, onN
 function creditHTML() {
   const names = [...app.querySelectorAll('figure.photo img')].map(i => i.dataset.name);
   const parts = names.map(n => `<a href="https://commons.wikimedia.org/wiki/File:${encodeURIComponent(n)}" target="_blank" rel="noopener">照片來源（Wikimedia Commons）</a>`);
+  if (app.querySelector('figure.pdfimg')) parts.push('圖片出自〈國家地理知識大競賽 複賽、準決賽試題範例〉');
   if (app.querySelector('figure.flag')) parts.push('國旗圖：flagcdn.com');
   if (app.querySelector('figure.map')) parts.push('地圖：Natural Earth、taiwan-atlas');
   return parts.length ? `<div class="credit">${parts.join('・')}</div>` : '';
@@ -605,7 +611,7 @@ function buzzRound(box, q, mode, cb) {
     <div class="host" id="host"></div>
     ${mediaHTML(q.img)}
     <div class="q-text"><span id="stemT"></span>${stem ? '<br>' : ''}<span class="q-main" id="mainT"></span></div>
-    <div class="buzz-area" id="barea"><button class="buzzer" id="buzzer">搶答</button><div class="buzz-note">按 <kbd>空白鍵</kbd> 按鈴</div></div>
+    <div class="buzz-area" id="barea"><button class="buzzer" id="buzzer">搶答</button><div class="buzz-note">按 <kbd>空白鍵</kbd> 按鈴</div><button class="btn ghost small" id="skip">不會，看答案</button></div>
     <div id="ansArea" hidden>${timerHTML()}<div class="answer-row"><input class="board-input" id="inp" autocomplete="off" placeholder="立刻作答…" aria-label="答案"><button class="btn" id="sub">回答</button></div></div>`;
   const $ = s => box.querySelector(s);
   hydrate(box);
@@ -697,6 +703,7 @@ function buzzRound(box, q, mode, cb) {
   }
 
   buzzer.onclick = userBuzz;
+  $('#skip').onclick = () => { if (state === 'reading' || state === 'waiting') end(false, null, q._your); };
   $('#sub').onclick = () => submit(false);
   inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); submit(false); } });
   onKey = e => {

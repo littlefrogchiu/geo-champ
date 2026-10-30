@@ -292,3 +292,7 @@ button:disabled { cursor: default; }
 .truth-mark { fill: #2f8f5b; stroke: #fff; stroke-width: 2.5; }
 .miss-line { stroke: #555; stroke-width: 2; stroke-dasharray: 5 4; }
 .mapsvg.contour { max-height: 420px; }
+.from { display: inline-block; font-size: .8rem; font-weight: 700; color: var(--gold); border: 1px solid var(--gold); border-radius: 999px; padding: 1px 10px; margin-bottom: 6px; }
+.qimg.pdfimg img { max-height: 420px; background: #fff; }
+.truth-box { fill: rgba(47, 143, 91, .18); stroke: #2f8f5b; stroke-width: 3; }
+.imgsvg { max-height: 460px; background: #fff; }
