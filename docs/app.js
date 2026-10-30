@@ -37,6 +37,12 @@ const TYPES = {
     rules: ['每組連鎖題有 <b>3 個子題</b>，題目環環相扣', '被評定答對，可獲得下一個子題的<b>優先答題權</b>', '被評定答錯，其他選手才可以再開始搶答', '每人每子題只有 <b>1 次</b>答題機會'] }
 };
 const LETTERS = ['A', 'B', 'C', 'D'];
+// 每次出題隨機排列選項（甲乙丙丁這類有順序的選項不動），避免正解集中在 (A)
+function mixOpts(q) {
+  if (q.opts.every(o => /^[甲乙丙丁]$/.test(o))) return q;
+  const order = shuffle([0, 1, 2, 3].slice(0, q.opts.length));
+  return Object.assign({}, q, { opts: order.map(i => q.opts[i]), a: order.indexOf(q.a) });
+}
 const RIVAL = {
   off: null,
   easy: { label: '新手', lo: 1.05, hi: 1.6, p: 0.5 },
@@ -77,7 +83,7 @@ const later = (fn, ms) => { const g = gen; setTimeout(() => { if (g === gen) fn(
 
 /* ───────── 圖片（照片／地圖／國旗／氣候圖） ───────── */
 const COMMONS = 'https://upload.wikimedia.org/wikipedia/commons/thumb/';
-const hasImg = d => !!(d && (d.img || (d.hints && d.hints.some(h => h.img)) || (d.items && d.items.some(x => x.img))));
+const hasImg = d => !!(d && (d.img || d.ref || d.map || d.kind || (d.hints && d.hints.some(h => h.img)) || (d.items && d.items.some(x => x.img))));
 const scripts = {};
 function loadScript(src) {
   return scripts[src] || (scripts[src] = new Promise((res, rej) => {
@@ -117,22 +123,28 @@ function hydrate(root) {
     catch (e) { fig.innerHTML = '<div class="map-loading">地圖載入失敗，請確認網路連線</div>'; }
   });
 }
-async function drawMap(s) {
+async function drawMap(s) { return (await buildMap(s)).svg; }
+async function buildMap(s) {
   const feats = await geo(s.map);
   const tw = s.map === 'tw', W = tw ? 420 : 640, H = tw ? 520 : 400;
   let proj;
   if (tw) proj = d3.geoMercator().fitExtent([[14, 14], [W - 14, H - 14]], { type: 'MultiPoint', coordinates: [[119.3, 21.88], [122.02, 25.32]] });
   else {
     const [lon, lat, span] = s.view;
-    proj = d3.geoAzimuthalEqualArea().rotate([-lon, -lat]).translate([W / 2, H / 2]).scale(W / (span * Math.PI / 180)).clipAngle(90);
+    if (span >= 180) proj = d3.geoNaturalEarth1().fitExtent([[6, 6], [W - 6, H - 6]], { type: 'Sphere' });
+    else proj = d3.geoAzimuthalEqualArea().rotate([-lon, -lat]).translate([W / 2, H / 2]).scale(W / (span * Math.PI / 180)).clipAngle(90);
   }
   const path = d3.geoPath(proj), hl = new Set(s.hl || []);
   const key = f => tw ? f.properties.COUNTYENG : f.id;
   let svg = `<svg viewBox="0 0 ${W} ${H}" class="mapsvg" role="img" aria-label="題目地圖"><rect width="${W}" height="${H}" class="sea"/>`;
   if (!tw) svg += `<path d="${path(d3.geoGraticule10())}" class="grat"/>`;
   feats.forEach(f => { const d = path(f); if (d) svg += `<path d="${d}" class="land${hl.has(key(f)) ? ' hl' : ''}"/>`; });
-  (s.pts || []).forEach(p => { const xy = proj(p); if (xy) svg += `<circle cx="${xy[0]}" cy="${xy[1]}" r="15" class="ping"/><circle cx="${xy[0]}" cy="${xy[1]}" r="6.5" class="pt"/>`; });
-  return svg + '</svg>';
+  (s.pts || []).forEach(p => {
+    const xy = proj([p[0], p[1]]); if (!xy) return;
+    if (p[2]) svg += `<circle cx="${xy[0]}" cy="${xy[1]}" r="5" class="pt"/><text x="${xy[0] + 8}" y="${xy[1] + 6}" class="pt-label" style="font-size:${tw ? 22 : 16}px">${esc(p[2])}</text>`;
+    else svg += `<circle cx="${xy[0]}" cy="${xy[1]}" r="15" class="ping"/><circle cx="${xy[0]}" cy="${xy[1]}" r="6.5" class="pt"/>`;
+  });
+  return { svg: svg + '</svg>', proj, W, H };
 }
 function climateSVG(c) {
   const W = 520, H = 300, L = 46, R = 46, T = 30, Bm = 34, iw = W - L - R, ih = H - T - Bm, cw = iw / 12;
@@ -221,7 +233,7 @@ function home() {
   updateTop();
   const card = t => {
     const s = stats[t] || { n: 0, c: 0 }, T = TYPES[t];
-    const total = t === 'chain' ? B.chain.length + ' 組' : B[t].length + ' 題';
+    const total = t === 'chain' ? B.chain.length + ' 組' : t === 'smc' ? B.smc.reduce((n, d) => n + (d.items ? d.items.length : 1), 0) + ' 題' : B[t].length + ' 題';
     const pct = s.n ? Math.round(s.c / s.n * 100) : 0;
     return `<button class="mode" data-mode="${t}">
       <span class="tag">${T.stage}</span><span class="name">${T.name}</span><span class="desc">${T.desc}</span>
@@ -234,8 +246,13 @@ function home() {
   <section class="hero">
     <svg class="globe" viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="18" fill="none" stroke="currentColor" stroke-width="2"/><ellipse cx="20" cy="20" rx="8" ry="18" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2 20h36M5 11h30M5 29h30" stroke="currentColor" stroke-width="1.2"/></svg>
     <h1>國家地理知識大競賽・特訓場</h1>
-    <p>依總決賽的六種題型與計時規則設計，題目全部新編，題型練熟了再上場。</p>
+    <p>依準決賽紙筆測驗與總決賽六種題型設計，題目全部新編，題型練熟了再上場。</p>
   </section>
+
+  <div class="section-h"><h2>準決賽練習</h2><small>紙筆測驗：選擇題、非選擇題、同分決勝題</small></div>
+  <div class="grid">${['smc', 'sopen', 'stie'].map(card).join('')}
+    <button class="mode" data-semimock="1"><span class="tag">準決賽・綜合模擬</span><span class="name">綜合模擬</span><span class="desc">選擇 12 → 非選擇 4 → 同分決勝 2，三種題型一次練</span><span class="meta"><span>不計時・依題型計分</span><span></span></span></button>
+  </div>
 
   <div class="section-h"><h2>模擬總決賽</h2><small>照比賽順序與計分完整跑一次</small></div>
   <div class="grid">
@@ -269,11 +286,12 @@ function home() {
       <span class="hint">搶答題逐字顯示的速度（每秒 5／7／10 字）。</span></div>
     <div class="set-row"><button class="btn ghost small" id="resetStats">清除練習紀錄</button></div>
   </div>
-  <p class="foot">題目依「國家地理知識大競賽」總決賽題型自編，僅供練習使用。</p>`;
+  <p class="foot">題目依「國家地理知識大競賽」準決賽與總決賽題型自編，僅供練習使用。</p>`;
 
   app.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => modePage(b.dataset.mode));
   app.querySelectorAll('[data-mock]').forEach(b => b.onclick = () => startMock(+b.dataset.mock));
   app.querySelector('[data-pic]').onclick = startPictures;
+  app.querySelector('[data-semimock]').onclick = startSemiMock;
   const rv = app.querySelector('[data-review]'); if (wc) rv.onclick = startReview;
   app.querySelectorAll('.seg').forEach(sg => sg.querySelectorAll('button').forEach(b => b.onclick = () => {
     const key = sg.dataset.set; settings[key] = key === 'speed' ? +b.dataset.v : b.dataset.v; saveAll();
@@ -298,7 +316,7 @@ function modePage(type) {
     <h2>${T.name}</h2>
     <ul>${T.rules.map(r => `<li>${r}</li>`).join('')}</ul>
     <div class="count-pick seg" id="cnt">${counts.map(n => `<button data-n="${n}" aria-pressed="${n === pick}">${n} ${type === 'chain' ? '組' : '題'}</button>`).join('')}<button data-n="${total}" aria-pressed="false">全部 ${total}</button></div>
-    <div class="count-pick seg" id="pic"><button data-p="0" aria-pressed="true">全部題目</button><button data-p="1" aria-pressed="false">只出圖片題（${picturePool(type).length}）</button></div>
+    <div class="count-pick seg" id="pic" ${SEMI.includes(type) ? 'hidden' : ''}><button data-p="0" aria-pressed="true">全部題目</button><button data-p="1" aria-pressed="false">只出圖片題（${picturePool(type).length}）</button></div>
     <div class="row"><button class="btn ghost" data-go="home">← 回首頁</button><span class="spacer"></span><button class="btn" id="go">開始練習</button></div>
   </div>`;
   let picOnly = false;
@@ -337,6 +355,13 @@ function startReview() {
       const prev = grp.items.slice(0, s).map(x => x.ans[0]).join(' → ');
       const it = grp.items[s];
       return { type: 'sa', key, d: { q: (prev ? `（連鎖題「${grp.theme}」，前面答案：${prev}）` : '') + it.q, ans: it.ans, all: it.all, exp: it.exp, img: it.img } };
+    }
+    if (type === 'smc') {
+      const [g, s] = rest.split('.').map(Number), d = B.smc[g];
+      if (!d) return null;
+      if (!d.items) return { type, key, d };
+      const q = d.items[s]; if (!q) return null;
+      return { type, key, d: { q: d.stem + q.q, opts: q.opts, a: q.a, exp: q.exp, img: d.img, table: d.table } };
     }
     const d = B[type] && B[type][+rest];
     if (!d) return null;
@@ -377,7 +402,7 @@ function nextItem() {
 function renderItem() {
   gen++; onKey = null;
   const it = S.segments[S.seg].items[S.i];
-  ({ tf: renderTF, mc: renderMC, sa: renderSA, group: renderGroup, buzz: renderBuzz, chain: renderChain })[it.type](it);
+  ({ tf: renderTF, mc: renderMC, sa: renderSA, group: renderGroup, buzz: renderBuzz, chain: renderChain, smc: renderSMC, sopen: renderSOpen, stie: renderSTie })[it.type](it);
   window.scrollTo(0, 0);
 }
 function progressText() {
@@ -397,7 +422,7 @@ function record(it, ok, pts, max, label, your, answer) {
   S.score += pts; S.max += max;
   S.results.push({ type: it.type, ok, pts, max, label, your, answer, seg: S.seg });
   if (!S.review) bump(it.type, ok);
-  if (ok) delete wrong[it.key]; else wrong[it.key] = 1;
+  if (ok) delete wrong[it.key]; else if (it.type !== 'sopen' && it.type !== 'stie') wrong[it.key] = 1;
   saveAll(); updateTop();
   const pg = app.querySelector('.q-progress'); if (pg) pg.textContent = progressText();
 }
@@ -456,7 +481,7 @@ function renderTF(it) {
 
 /* ───────── 選擇題 ───────── */
 function renderMC(it) {
-  const d = it.d, no = ++S.no;
+  const d = mixOpts(it.d), no = ++S.no;
   app.innerHTML = stage(`${no}-選擇題`, `<div class="q-text">${esc(d.q)}</div>${mediaHTML(d.img)}${timerHTML()}
     <div class="opts">${d.opts.map((o, i) => `<button data-i="${i}"><span class="k">(${LETTERS[i]})</span><span>${esc(o)}</span></button>`).join('')}</div>
     <div id="fb"></div>${kbd('按 <kbd>A</kbd>–<kbd>D</kbd> 或 <kbd>1</kbd>–<kbd>4</kbd> 作答')}`);
@@ -776,6 +801,7 @@ function result() {
   const prev = S;
   app.querySelector('#again').onclick = () => {
     if (prev.review) return startReview();
+    if (prev.semi) return startSemiMock();
     if (prev.mock) return startMock(prev.segments[0].type === 'tf' ? 1 : 2);
     const sg = prev.segments[0]; startSession([{ type: sg.type, items: draw(sg.type, sg.items.length) }], { title: prev.title });
   };
@@ -786,4 +812,4 @@ function result() {
 TYPES.mixed = { name: '錯題複習' };
 
 document.addEventListener('click', e => { const g = e.target.closest('[data-go="home"]'); if (g) home(); });
-home();
+document.addEventListener('DOMContentLoaded', home);

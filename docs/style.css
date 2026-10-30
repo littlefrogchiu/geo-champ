@@ -257,3 +257,38 @@ button:disabled { cursor: default; }
 .credit { font-size: .78rem; color: var(--ink-soft); margin-top: 6px; }
 .credit a { color: inherit; }
 .hint-card .qimg.map .mapsvg { max-height: 260px; }
+
+/* ── 準決賽 ── */
+[hidden] { display: none !important; }
+.stem { background: var(--card); border-left: 5px solid var(--gold); border-radius: 10px; padding: 10px 14px; margin: 6px 0 12px; font-size: 1.02rem; line-height: 1.75; }
+.stem b { display: inline-block; color: var(--gold); margin-right: 8px; }
+.dtable-wrap { overflow-x: auto; margin: 4px 0 14px; }
+.dtable { border-collapse: collapse; margin: 0 auto; background: var(--card); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; box-shadow: var(--shadow); }
+.dtable th, .dtable td { padding: 7px 14px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+.dtable thead th { background: var(--slide); color: var(--title); }
+.parts { display: grid; gap: 14px; margin-bottom: 12px; }
+.part { background: var(--card); border-radius: 12px; padding: 12px 14px; border: 1px solid var(--line); }
+.part-q { font-weight: 700; margin-bottom: 8px; line-height: 1.7; }
+.part-q b { color: var(--title); }
+.part-pts { float: right; font-size: .8rem; color: var(--ink-soft); font-weight: 500; margin-left: 8px; }
+.part .board-input { width: 100%; font-size: 1.1rem; }
+.board-input.area { resize: vertical; font-weight: 500; line-height: 1.6; }
+.feedback.small { margin-top: 10px; padding: 8px 12px; font-size: .95rem; }
+.feedback.small .verdict { font-size: 1rem; }
+.feedback.self { border-color: var(--gold); }
+.feedback .ref { color: var(--ink); }
+.feedback .ref::before { content: ""; }
+.rubric { display: grid; gap: 6px; margin: 10px 0 6px; }
+.rubric > b { font-size: .9rem; color: var(--ink-soft); }
+.rubric label { display: block; background: var(--bg); border-radius: 8px; padding: 7px 10px; cursor: pointer; }
+.rubric input { margin-right: 6px; transform: scale(1.2); }
+.drawbox { position: relative; background: var(--white-board); border: 2px dashed var(--line); border-radius: 12px; margin: 6px 0 12px; overflow: hidden; }
+.drawbox canvas { display: block; touch-action: none; cursor: crosshair; }
+.draw-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ink-soft); pointer-events: none; font-size: .95rem; }
+.pt-label { font-size: 15px; font-weight: 700; fill: #8e2418; paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+.qimg.locate svg { cursor: crosshair; }
+.qimg.contour { background: var(--card); border-radius: 12px; padding: 6px; box-shadow: var(--shadow); }
+.you-mark { fill: #2f6fd1; stroke: #fff; stroke-width: 2.5; }
+.truth-mark { fill: #2f8f5b; stroke: #fff; stroke-width: 2.5; }
+.miss-line { stroke: #555; stroke-width: 2; stroke-dasharray: 5 4; }
+.mapsvg.contour { max-height: 420px; }
